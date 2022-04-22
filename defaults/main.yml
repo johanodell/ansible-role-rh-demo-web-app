@@ -1,0 +1,13 @@
+---
+# defaults file for ansible-role-rh-demo-web-app
+rh_demo_web_app_name: rh_demo_web_app
+rh_demo_web_app_git_repo: https://github.com/pgustafs/rh_demo_web_app.git
+rh_demo_web_app_release: master
+rh_demo_web_app_base_dir: /srv
+rh_demo_web_app_appgroup: rhdemo
+rh_demo_web_app_appuser: rhdemo
+rh_demo_web_app_db: rhdemo
+rh_demo_web_app_db_host: 127.0.0.1
+rh_demo_web_app_db_user: rhdemo
+rh_demo_web_app_db_pass: secret
+rh_demo_web_app_listen_port: 80

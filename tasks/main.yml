@@ -1,0 +1,152 @@
+---
+# tasks file for ansible-role-rh-demo-web-app
+- name: Populate service facts
+  service_facts:
+
+- name: Install Python36, python virtualenv, python3-psycopg2 and nginx
+  package:
+    name: "{{ item }}"
+    state: present
+  register: package_res
+  retries: 5
+  until: package_res is success
+  with_items:
+    - python36
+    - python3-virtualenv
+    - python3-psycopg2
+    - git
+    - nginx
+
+- name: Put SELinux in permissive mode, logging actions that would be blocked.
+  selinux:
+    policy: targeted
+    state: permissive
+
+- name: Set django project directory, (where manage.py lives)
+  set_fact:
+    projectdir: "{{ rh_demo_web_app_base_dir }}/{{ rh_demo_web_app_appuser }}/{{ rh_demo_web_app_name }}"
+
+- name: Create base directory if it does not exist
+  file:
+    path: "{{ rh_demo_web_app_base_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: Add the system group for the application
+  group:
+    name: "{{ rh_demo_web_app_appgroup }}"
+    state: present
+
+
+- name: Add the system user for the application
+  user:
+    name: "{{ rh_demo_web_app_appuser }}"
+    group: "{{ rh_demo_web_app_appgroup }}"
+    home: "{{ rh_demo_web_app_base_dir }}/{{ rh_demo_web_app_appuser }}"
+
+- name: Set correct permissions on directory
+  file:
+    path: "{{ rh_demo_web_app_base_dir }}/{{ rh_demo_web_app_appuser }}"
+    state: directory
+    mode: '0755'
+
+- name: Install django, gunicorn, and psycopg2
+  pip:
+    name: django, gunicorn
+    virtualenv: "{{ rh_demo_web_app_base_dir }}/{{ rh_demo_web_app_appuser }}/venv"
+    virtualenv_site_packages: yes
+  become: yes
+  become_user: "{{ rh_demo_web_app_appuser }}"
+
+- name: Deploy web application
+  git:
+    repo: "{{ rh_demo_web_app_git_repo }}"
+    dest: "{{ projectdir }}"
+    version: "{{ rh_demo_web_app_release }}"
+    force: yes
+  become: yes
+  become_user: "{{ rh_demo_web_app_appuser }}"
+
+- name: Add Django local settings file
+  template:
+    src: local_settings.py.j2
+    dest: "{{ projectdir }}/{{ rh_demo_web_app_name }}/local_settings.py"
+    owner: "{{ rh_demo_web_app_appuser }}"
+    group: "{{ rh_demo_web_app_appgroup }}"
+    mode: '0640'
+
+- name: Set static files location
+  lineinfile:
+    path: "{{ projectdir }}/{{ rh_demo_web_app_name }}/settings.py"
+    regexp: '^STATIC_ROOT '
+    insertafter: "STATIC_URL = '/static/'"
+    line: "STATIC_ROOT = os.path.join(BASE_DIR, 'static/')"
+
+#- name: Create initial superuser
+#  django_manage:
+#    command: "createsuperuser --noinput --username=admin --email=admin@example.com"
+#    app_path: "{{ projectdir }}"
+#    virtualenv: "{{ rh_demo_web_app_base_dir }}/{{ rh_demo_web_app_appuser }}/venv"
+
+- name: Updates database schema
+  django_manage:
+    command: migrate
+    app_path: "{{ projectdir }}"
+    virtualenv: "{{ rh_demo_web_app_base_dir }}/{{ rh_demo_web_app_appuser }}/venv"
+  run_once: true
+
+- name: Collect static files
+  django_manage:
+    command: "collectstatic --noinput"
+    app_path: "{{ projectdir }}"
+    virtualenv: "{{ rh_demo_web_app_base_dir }}/{{ rh_demo_web_app_appuser }}/venv"
+  become: yes
+  become_user: "{{ rh_demo_web_app_appuser }}"
+
+- name: Load test data
+  django_manage:
+    command: "loaddata --app polls polls/polls-test-data.json"
+    app_path: "{{ projectdir }}"
+    virtualenv: "{{ rh_demo_web_app_base_dir }}/{{ rh_demo_web_app_appuser }}/venv"
+  run_once: true
+
+- name: Creating systemd socket file for Gunicorn
+  template:
+    src: gunicorn.socket.j2
+    dest: /usr/lib/systemd/system/gunicorn.socket
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Creating systemd service files for Gunicorn
+  template:
+    src: gunicorn.service.j2
+    dest: /usr/lib/systemd/system/gunicorn.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - restart gunicorn
+
+- name: Get my public IP
+  ipify_facts:
+
+- debug: var=ipify_public_ip
+
+- name: Configure Nginx
+  template:
+    src: default.conf.j2
+    dest: /etc/nginx/conf.d/default.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - restart nginx
+
+- name: Enable port {{ rh_demo_web_app_listen_port }} in firewalld
+  firewalld:
+    port: "{{ rh_demo_web_app_listen_port }}/tcp"
+    permanent: yes
+    immediate: true
+    state: enabled
+  when: "'firewalld.service' in services"

@@ -1,0 +1,10 @@
+ALLOWED_HOSTS = ['*']
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql_psycopg2',
+        'NAME': '{{ rh_demo_web_app_db }}',
+        'USER': '{{ rh_demo_web_app_db_user }}',
+        'PASSWORD': '{{ rh_demo_web_app_db_pass }}',
+        'HOST': '{{ rh_demo_web_app_db_host }}',
+    }
+}
